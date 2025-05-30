@@ -128,10 +128,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="FileName.cpp" />
-    <ClCompile Include="Math.cpp" />
+    <ClCompile Include="counter.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Math.h" />
+    <ClInclude Include="counter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

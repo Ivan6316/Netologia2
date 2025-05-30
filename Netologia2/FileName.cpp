@@ -1,6 +1,6 @@
 #include <iostream>
 #include <algorithm>
-#include "Math.h"
+#include "counter.h"
 
 int main()
 {
