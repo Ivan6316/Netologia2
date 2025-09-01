@@ -1,31 +1,25 @@
 ﻿#include <iostream>
-#include <set>
-#include <list>
 #include <vector>
+#include <memory>
 
-template<typename T>
-void print_container(T arr);
+class node
+{
+public:
+    int m_value;
+    // Изменения были видены в строке ниже
+    std::weak_ptr<node> parent;
+    node(int value) : m_value{ value } {};
+    ~node() { std::cout << "destructor called\n"; }
+};
 
 int main()
 {
-	std::set<std::string> test_set = { "one", "two", "three", "four" };
-	print_container(test_set); // four one three two. помните почему такой порядок? :)
+    {
+        auto node1 = std::make_shared<node>(1);
+        auto node2 = std::make_shared<node>(2);
+        node1->parent = node2;
+        node2->parent = node1;
+    }
 
-	std::list<std::string> test_list = { "one", "two", "three", "four" };
-	print_container(test_list); // one, two, three, four
-
-	std::vector<std::string> test_vector = { "one", "two", "three", "four" };
-	print_container(test_vector); // one, two, three, four
-
-	return EXIT_SUCCESS;
-}
-
-template<typename T>
-void print_container(T arr)
-{
-	for (const auto& element : arr)
-	{
-		std::cout << element << " ";
-	}
-	std::cout << std::endl;
+    return 0;
 }
