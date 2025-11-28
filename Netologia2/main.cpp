@@ -142,5 +142,5 @@ int main()
     std::cout << "ѕоследовательна€ верси€ выполнена за " << duration_sequential.count() << " микросекунд" << std::endl;
 
     
-    return EXIT_SUCCESS;
+    return 0;
 }

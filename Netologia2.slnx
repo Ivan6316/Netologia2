@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Netologia2/Netologia2.vcxproj" />
+  <Project Path="Netologia2/Netologia2.vcxproj" Id="65a77164-2678-469d-be27-444e0c48c655" />
 </Solution>

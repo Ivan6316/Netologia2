@@ -1,0 +1,6 @@
+FROM ubuntu:20.04
+RUN apt update && apt install -y g++
+COPY main.cpp /app/
+WORKDIR /app
+RUN g++ -std=c++11 -pthread -O2 main.cpp -o parallel_gcс
+CMD ["./parallel_gcс"]
