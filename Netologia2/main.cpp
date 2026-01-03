@@ -1,117 +1,172 @@
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
-#include <map>
+#include <memory>
+#include <algorithm>
+#include <mutex>
 
-class SqlSelectQueryBuilder
+// Базовый класс наблюдателя
+class Observer
+{
+public:
+    virtual void onWarning(const std::string& message) {}
+    virtual void onError(const std::string& message) {}
+    virtual void onFatalError(const std::string& message) {}
+    virtual ~Observer() = default;
+};
+
+// Наблюдаемый класс
+class Observable
 {
 private:
-    std::vector<std::string> columns;
-    std::string from_table;
-    std::map<std::string, std::string> where_conditions;
+    std::vector<Observer*> observers;
+    mutable std::mutex mutex;
 
 public:
-    SqlSelectQueryBuilder() = default;
-
-    // Существующие методы
-    SqlSelectQueryBuilder& AddColumn(const std::string& column)
+    // Добавление наблюдателя
+    void addObserver(Observer* observer)
     {
-        columns.push_back(column);
-        return *this;
-    }
-
-    SqlSelectQueryBuilder& AddFrom(const std::string& table)
-    {
-        from_table = table;
-        return *this;
-    }
-
-    SqlSelectQueryBuilder& AddWhere(const std::string& column, const std::string& value) 
-    {
-        where_conditions[column] = value;
-        return *this;
-    }
-
-    // Новые методы с noexcept
-    SqlSelectQueryBuilder& AddWhere(const std::map<std::string, std::string>& kv) noexcept
-    {
-        // Объединяем с существующими условиями
-        where_conditions.insert(kv.begin(), kv.end());
-        return *this;
-    }
-
-    SqlSelectQueryBuilder& AddColumns(const std::vector<std::string>& cols) noexcept
-    {
-        // Добавляем новые колонки к существующим
-        columns.insert(columns.end(), cols.begin(), cols.end());
-        return *this;
-    }
-
-    std::string BuildQuery() const
-    {
-        std::string query = "SELECT ";
-
-        // Обрабатываем колонки
-        if (columns.empty())
+        std::lock_guard<std::mutex> lock(mutex);
+        if (observer &&
+            std::find(observers.begin(), observers.end(), observer) == observers.end())
         {
-            query += "*";
+            observers.push_back(observer);
         }
-        else
+    }
+
+    // Удаление наблюдателя
+    void removeObserver(Observer* observer)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = std::find(observers.begin(), observers.end(), observer);
+        if (it != observers.end())
         {
-            for (size_t i = 0; i < columns.size(); ++i)
-            {
-                query += columns[i];
-                if (i != columns.size() - 1)
-                {
-                    query += ", ";
-                }
-            }
+            observers.erase(it);
+        }
+    }
+
+    // Оповещение наблюдателей о предупреждении
+    void warning(const std::string& message) const
+    {
+        std::vector<Observer*> observers_copy;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            observers_copy = observers; // копируем для безопасного обхода
         }
 
-        // Проверяем, что таблица задана
-        if (from_table.empty())
+        for (auto observer : observers_copy)
         {
-            return "";
+            observer->onWarning(message);
+        }
+    }
+
+    // Оповещение наблюдателей об ошибке
+    void error(const std::string& message) const 
+    {
+        std::vector<Observer*> observers_copy;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            observers_copy = observers;
         }
 
-        // Добавляем FROM
-        query += " FROM " + from_table;
-
-        // Добавляем WHERE если есть условия
-        if (!where_conditions.empty())
+        for (auto observer : observers_copy)
         {
-            query += " WHERE ";
-            bool first = true;
-            for (const auto& condition : where_conditions)
-            {
-                if (!first)
-                {
-                    query += " AND ";
-                }
-                query += condition.first + "=" + condition.second;
-                first = false;
-            }
+            observer->onError(message);
+        }
+    }
+
+    // Оповещение наблюдателей о фатальной ошибке
+    void fatalError(const std::string& message) const
+    {
+        std::vector<Observer*> observers_copy;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            observers_copy = observers;
         }
 
-        query += ";";
-        return query;
+        for (auto observer : observers_copy) 
+        {
+            observer->onFatalError(message);
+        }
     }
 };
 
-int main()
+// Класс для работы с предупреждениями
+class WarningObserver : public Observer
 {
-    // Подключение Русского языка
-    setlocale(LC_ALL, "rus");
+public:
+    void onWarning(const std::string& message) override
+    {
+        std::cout << "WARNING: " << message << std::endl;
+    }
+};
 
-    SqlSelectQueryBuilder query_builder;
-    query_builder.AddColumn("name").AddColumn("phone");
-    query_builder.AddFrom("students");
-    query_builder.AddWhere("id", "42").AddWhere("name", "John");
+// Класс для работы с ошибками
+class ErrorObserver : public Observer
+{
+private:
+    std::string filePath;
+    mutable std::mutex fileMutex;
 
-    std::string result = query_builder.BuildQuery();
-    std::cout << "Результат: " << result << std::endl;
-    std::cout << "Ожидалось: SELECT name, phone FROM students WHERE id=42 AND name=John;" << std::endl;
-    std::cout << "Совпадает: " << (result == "SELECT name, phone FROM students WHERE id=42 AND name=John;" ? "Да" : "Нет") << std::endl;
+public:
+    explicit ErrorObserver(const std::string& path) : filePath(path) {}
 
-    return EXIT_SUCCESS;
+    void onError(const std::string& message) override
+    {
+        std::lock_guard<std::mutex> lock(fileMutex);
+        std::ofstream logFile(filePath, std::ios::app);
+        if (logFile.is_open())
+        {
+            logFile << "ERROR: " << message << std::endl;
+        }
+        else
+        {
+            std::cerr << "Cannot write to error log file: " << filePath << std::endl;
+        }
+    }
+};
+
+// Класс для работы с фатальными ошибками
+class FatalErrorObserver : public Observer
+{
+private:
+    std::string filePath;
+    mutable std::mutex fileMutex;
+
+public:
+    explicit FatalErrorObserver(const std::string& path) : filePath(path) {}
+
+    void onFatalError(const std::string& message) override
+    {
+        // Печать в консоль
+        std::cerr << "FATAL ERROR: " << message << std::endl;
+
+        // Печать в файл
+        {
+            std::lock_guard<std::mutex> lock(fileMutex);
+            std::ofstream logFile(filePath, std::ios::app);
+            if (logFile.is_open())
+            {
+                logFile << "FATAL ERROR: " << message << std::endl;
+            }
+        }
+    }
+};
+
+
+int main() {
+    Observable observable;
+
+    WarningObserver warningObserver;
+    ErrorObserver errorObserver("input.txt");
+    FatalErrorObserver fatalErrorObserver("input.txt");
+
+    observable.addObserver(&warningObserver);
+    observable.addObserver(&errorObserver);
+    observable.addObserver(&fatalErrorObserver);
+
+    observable.warning("Test warning");
+    observable.error("Test error");
+    observable.fatalError("Test fatal error");
 }
