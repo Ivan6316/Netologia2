@@ -1,172 +1,151 @@
-#include <iostream>
 #include <fstream>
-#include <string>
-#include <vector>
 #include <memory>
-#include <algorithm>
-#include <mutex>
+#include <string>
 
-// Базовый класс наблюдателя
-class Observer
+// Разделение интерфейса на несколько специализированных классов
+class HTMLPrintable
 {
 public:
-    virtual void onWarning(const std::string& message) {}
-    virtual void onError(const std::string& message) {}
-    virtual void onFatalError(const std::string& message) {}
-    virtual ~Observer() = default;
+    virtual ~HTMLPrintable() = default;
+    virtual std::string printAsHTML() const = 0;
 };
 
-// Наблюдаемый класс
-class Observable
-{
-private:
-    std::vector<Observer*> observers;
-    mutable std::mutex mutex;
-
-public:
-    // Добавление наблюдателя
-    void addObserver(Observer* observer)
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (observer &&
-            std::find(observers.begin(), observers.end(), observer) == observers.end())
-        {
-            observers.push_back(observer);
-        }
-    }
-
-    // Удаление наблюдателя
-    void removeObserver(Observer* observer)
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        auto it = std::find(observers.begin(), observers.end(), observer);
-        if (it != observers.end())
-        {
-            observers.erase(it);
-        }
-    }
-
-    // Оповещение наблюдателей о предупреждении
-    void warning(const std::string& message) const
-    {
-        std::vector<Observer*> observers_copy;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            observers_copy = observers; // копируем для безопасного обхода
-        }
-
-        for (auto observer : observers_copy)
-        {
-            observer->onWarning(message);
-        }
-    }
-
-    // Оповещение наблюдателей об ошибке
-    void error(const std::string& message) const 
-    {
-        std::vector<Observer*> observers_copy;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            observers_copy = observers;
-        }
-
-        for (auto observer : observers_copy)
-        {
-            observer->onError(message);
-        }
-    }
-
-    // Оповещение наблюдателей о фатальной ошибке
-    void fatalError(const std::string& message) const
-    {
-        std::vector<Observer*> observers_copy;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            observers_copy = observers;
-        }
-
-        for (auto observer : observers_copy) 
-        {
-            observer->onFatalError(message);
-        }
-    }
-};
-
-// Класс для работы с предупреждениями
-class WarningObserver : public Observer
+class TextPrintable
 {
 public:
-    void onWarning(const std::string& message) override
-    {
-        std::cout << "WARNING: " << message << std::endl;
-    }
+    virtual ~TextPrintable() = default;
+    virtual std::string printAsText() const = 0;
 };
 
-// Класс для работы с ошибками
-class ErrorObserver : public Observer
+class JSONPrintable
+{
+public:
+    virtual ~JSONPrintable() = default;
+    virtual std::string printAsJSON() const = 0;
+};
+
+// Отвязка Data от конкретного типа данных
+class Data
 {
 private:
-    std::string filePath;
-    mutable std::mutex fileMutex;
+    std::string data_;
 
 public:
-    explicit ErrorObserver(const std::string& path) : filePath(path) {}
+    explicit Data(std::string data) : data_(std::move(data)) {}
+    virtual ~Data() = default;
 
-    void onError(const std::string& message) override
-    {
-        std::lock_guard<std::mutex> lock(fileMutex);
-        std::ofstream logFile(filePath, std::ios::app);
-        if (logFile.is_open())
-        {
-            logFile << "ERROR: " << message << std::endl;
-        }
-        else
-        {
-            std::cerr << "Cannot write to error log file: " << filePath << std::endl;
-        }
-    }
+    const std::string& getData() const { return data_; }
 };
 
-// Класс для работы с фатальными ошибками
-class FatalErrorObserver : public Observer
+// Специализированные классы для каждого формата
+class TextData : public TextPrintable, public Data
 {
-private:
-    std::string filePath;
-    mutable std::mutex fileMutex;
-
 public:
-    explicit FatalErrorObserver(const std::string& path) : filePath(path) {}
+    explicit TextData(const std::string& data) : Data(data) {}
 
-    void onFatalError(const std::string& message) override
+    std::string printAsText() const override
     {
-        // Печать в консоль
-        std::cerr << "FATAL ERROR: " << message << std::endl;
-
-        // Печать в файл
-        {
-            std::lock_guard<std::mutex> lock(fileMutex);
-            std::ofstream logFile(filePath, std::ios::app);
-            if (logFile.is_open())
-            {
-                logFile << "FATAL ERROR: " << message << std::endl;
-            }
-        }
+        return getData(); // Возвращаем значение
     }
 };
 
+class HTMLData : public HTMLPrintable, public Data
+{
+public:
+    explicit HTMLData(const std::string& data) : Data(data) {}
 
-int main() {
-    Observable observable;
+    std::string printAsHTML() const override
+    {
+        return "<html>" + getData() + "</html>";
+    }
+};
 
-    WarningObserver warningObserver;
-    ErrorObserver errorObserver("input.txt");
-    FatalErrorObserver fatalErrorObserver("input.txt");
+class JSONData : public JSONPrintable, public Data
+{
+public:
+    explicit JSONData(const std::string& data) : Data(data) {}
 
-    observable.addObserver(&warningObserver);
-    observable.addObserver(&errorObserver);
-    observable.addObserver(&fatalErrorObserver);
+    std::string printAsJSON() const override
+    {
+        return "{ \"data\": \"" + getData() + "\" }";
+    }
+};
 
-    observable.warning("Test warning");
-    observable.error("Test error");
-    observable.fatalError("Test fatal error");
+// Фабрика для создания данных в нужном формате
+class DataFactory {
+public:
+    static std::unique_ptr<Data> createFromString(const std::string& data,
+        const std::string& format) {
+        if (format == "text") {
+            return std::unique_ptr<Data>(new TextData(data));
+        }
+        else if (format == "html") {
+            return std::unique_ptr<Data>(new HTMLData(data));
+        }
+        else if (format == "json") {
+            return std::unique_ptr<Data>(new JSONData(data));
+        }
+        return nullptr;
+    }
+};
+
+// Функции сохранения, которые работают с конкретными интерфейсами
+void saveToAsHTML(std::ofstream& file, const HTMLPrintable& printable)
+{
+    file << printable.printAsHTML();
+}
+
+void saveToAsJSON(std::ofstream& file, const JSONPrintable& printable)
+{
+    file << printable.printAsJSON();
+}
+
+void saveToAsText(std::ofstream& file, const TextPrintable& printable)
+{
+    file << printable.printAsText();
+}
+
+// Универсальная функция сохранения через шаблоны
+template<typename PrintableType>
+void saveTo(std::ofstream& file, const PrintableType& printable)
+{
+    if constexpr (std::is_base_of_v<HTMLPrintable, PrintableType>)
+    {
+        saveToAsHTML(file, printable);
+    }
+    else if constexpr (std::is_base_of_v<TextPrintable, PrintableType>)
+    {
+        saveToAsText(file, printable);
+    }
+    else if constexpr (std::is_base_of_v<JSONPrintable, PrintableType>)
+    {
+        saveToAsJSON(file, printable);
+    }
+}
+
+// Функция с динамическим кастом для использования через Data*
+void saveToDynamic(std::ofstream& file, const Data* data, const std::string& format)
+{
+    if (!data) return;
+
+    if (format == "html") {
+        if (auto* htmlData = dynamic_cast<const HTMLPrintable*>(data)) {
+            saveToAsHTML(file, *htmlData);
+        }
+    }
+    else if (format == "text") {
+        if (auto* textData = dynamic_cast<const TextPrintable*>(data)) {
+            saveToAsText(file, *textData);
+        }
+    }
+    else if (format == "json") {
+        if (auto* jsonData = dynamic_cast<const JSONPrintable*>(data)) {
+            saveToAsJSON(file, *jsonData);
+        }
+    }
+}
+
+int main()
+{
+    return EXIT_SUCCESS;
 }
